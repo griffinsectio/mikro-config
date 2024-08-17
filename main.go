@@ -3,20 +3,43 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/go-routeros/routeros/v3"
 )
 
-func PrintMenu(menu []string) {
-	for i := 0; i < len(menu); i++ {
-		fmt.Printf("%d. %s\n", i+1, menu[i])
+func ClearScreen() {
+	cmd := exec.Command("clear")
+	cmd.Stdout = os.Stdout
+	cmd.Run()
+}
+
+func PrintOptions(options []string) {
+	for i := 0; i < len(options); i++ {
+		fmt.Printf("%d. %s\n", i+1, options[i])
 	}
 }
 
-func GetUserInput() int {
-	fmt.Print("Select one of the options: ")
+func EnterToContinue() {
+	fmt.Println("Press 'enter' or 'return' to continue")
+	fmt.Scanln()
+}
+
+func RunCommand(client *routeros.Client, command []string) {
+	reply, err := client.RunArgs(command)
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Printf("Router reply: %s\n", reply.String())
+	}
+}
+
+func GetIntUserInput(prompt string) int {
+	fmt.Print(prompt)
 	var temp string
 	fmt.Scanln(&temp)
 	user_choice, err := strconv.Atoi(temp)
@@ -27,22 +50,51 @@ func GetUserInput() int {
 	return user_choice
 }
 
+func GetStringUserInput(prompt string) string {
+	fmt.Print(prompt)
+	in := bufio.NewReader(os.Stdin)
+	str, err := in.ReadString('\n')
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	str_arr := strings.Split(str, "")
+	str_arr = str_arr[:len(str_arr)-1]
+
+	str = strings.Join(str_arr, "")
+
+	return str
+}
+
 func LoginMikroTik() *routeros.Client {
 	var address string
+	port := "8728"
+
 	var username string
 	var password string
 
-	fmt.Print("Address of MikroTik and API port (example: 192.168.1.1:8728): ")
+	fmt.Print("Address of MikroTik and API port (default = 8728): ")
 	fmt.Scanln(&address)
-	fmt.Println()
+
+	addresses_arr := strings.Split(address, ":")
+
+	ip := net.ParseIP(addresses_arr[0])
+	if ip == nil {
+		ClearScreen()
+
+		fmt.Println("Please provide a valid IP address!")
+		os.Exit(1)
+	}
+
+	if len(addresses_arr) == 1 {
+		address = address + ":" + port
+	}
 
 	fmt.Print("Username to login: ")
 	fmt.Scanln(&username)
-	fmt.Println()
 
 	fmt.Print("Password for the user: ")
 	fmt.Scanln(&password)
-	fmt.Println()
 
 	client, err := routeros.Dial(address, username, password)
 	if err != nil {
@@ -53,73 +105,189 @@ func LoginMikroTik() *routeros.Client {
 	return client
 }
 
-func PrintInterfaces(client *routeros.Client) {
+func RetrieveInterfaces(client *routeros.Client) []string {
+	ifaces := []string{}
 	command := []string{"/interface/print"}
 	reply, err := client.RunArgs(command)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+
 	reply_list := reply.Re
-	// fmt.Println(reply_list)
 	for i := 0; i < len(reply_list); i++ {
-		curr_interface := reply_list[i].List
-		// Print the comment for current interface (if exist)
-		for j := 0; j < len(curr_interface); j++ {
-			if curr_interface[j].Key == "comment" {
-				fmt.Printf(";;;%s\n", curr_interface[j].Value)
-			}
-		}
-		fmt.Println(curr_interface[1].Value)
+		curr_iface := reply_list[i].List
+		ifaces = append(ifaces, curr_iface[1].Value)
 	}
+
+	return ifaces
 }
 
-func AddInterfaceComment(client *routeros.Client) {
-	PrintInterfaces(client)
-	command := "/interface/comment"
-
-	var iface string
-	var comment string
-
-	fmt.Print("Interface you want to add comment to: ")
-	fmt.Scanln(&iface)
-	fmt.Println()
-	iface = fmt.Sprintf("=numbers=%s", iface)
-
-	fmt.Println("Comment you want to add: ")
-	temp := bufio.NewReader(os.Stdin)
-	comment, err := temp.ReadString('\n')
-
+func PrintInterfacesToScreen(client *routeros.Client) {
+	command := []string{"/interface/print"}
+	reply, err := client.RunArgs(command)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	comment = fmt.Sprintf("=comment=\"%s\"", comment)
 
-	full_command := []string{command, iface, comment}
+	reply_list := reply.Re
 
-	client.RunArgs(full_command)
+	for i := 0; i < len(reply_list); i++ {
+		curr_iface := reply_list[i].Map
+
+		if curr_iface["comment"] != "" {
+			fmt.Printf(";;; %s\n", curr_iface["comment"])
+		}
+
+		fmt.Printf("%d. %s\n", i+1, curr_iface["name"])
+	}
+}
+
+func PrintInterfaces(client *routeros.Client) {
+	ClearScreen()
+
+	PrintInterfacesToScreen(client)
+
+	EnterToContinue()
+}
+
+func ChangeInterfaceName(client *routeros.Client) {
+	ClearScreen()
+
+	// /interface/set numbers=ether1-lagilagi name=ether1
+	main_command := "/interface/set"
+	ifaces := RetrieveInterfaces(client)
+	var iface string
+	var name string
+
+	PrintInterfacesToScreen(client)
+	iface_prompt := "Choose the interface you want to change the name: "
+	iface = ifaces[GetIntUserInput(iface_prompt)-1]
+	iface = fmt.Sprintf("=numbers=%s", iface)
+
+	name_prompt := "The new name: "
+	name = GetStringUserInput(name_prompt)
+	name = fmt.Sprintf("=name=%s", name)
+
+	full_command := []string{main_command, iface, name}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+func AddInterfaceComment(client *routeros.Client) {
+	ClearScreen()
+
+	main_command := "/interface/set"
+
+	ifaces := RetrieveInterfaces(client)
+	var iface string
+	var comment string
+
+	PrintInterfacesToScreen(client)
+	iface_prompt := "Choose the interface you want to add comment to: "
+	iface = ifaces[GetIntUserInput(iface_prompt)-1]
+	iface = fmt.Sprintf("=numbers=%s", iface)
+
+	fmt.Println()
+
+	comment_prompt := "Comment you want to add: "
+	comment = GetStringUserInput(comment_prompt)
+
+	comment = fmt.Sprintf("=comment=%s", comment)
+
+	full_command := []string{main_command, iface, comment}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
 }
 
 func RemoveInterfaceComment(client *routeros.Client) {
-	PrintInterfaces(client)
-	command := "/interface/comment"
-	var inter_face string
+	ClearScreen()
 
-	fmt.Print("Interface you want to add comment to: ")
-	fmt.Scanln(&inter_face)
-	fmt.Println()
+	var ifaces = RetrieveInterfaces(client)
+	main_command := "/interface/set"
+	var iface string
+	var comment string
 
-	command = fmt.Sprintf("%s %s comment=\"\"", command, inter_face)
-	client.RunArgs([]string{command})
+	PrintInterfacesToScreen(client)
+	iface_prompt := "Interface you want to remove comment from: "
+	iface = ifaces[GetIntUserInput(iface_prompt)-1]
+	iface = fmt.Sprintf("=numbers=%s", iface)
 
+	comment = "=comment="
+
+	full_command := []string{main_command, iface, comment}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+func AddVlan(client *routeros.Client) {
+	ClearScreen()
+
+	main_command := "/interface/vlan/add"
+
+	ifaces := RetrieveInterfaces(client)
+	var vlan_name string
+	var vlan_id int
+	var vlan_id_str string
+	var iface string
+
+	vlan_name = GetStringUserInput("Give the vlan name: ")
+	vlan_id = GetIntUserInput("Give the vlan ID: ")
+	PrintInterfacesToScreen(client)
+	iface = ifaces[GetIntUserInput("Choose the interface: ")-1]
+
+	vlan_name = fmt.Sprintf("=name=%s", vlan_name)
+	vlan_id_str = fmt.Sprintf("=vlan-id=%d", vlan_id)
+	iface = fmt.Sprintf("=interface=%s", iface)
+
+	full_command := []string{main_command, vlan_name, vlan_id_str, iface}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+func RemoveVlan(client *routeros.Client) {
+	ClearScreen()
+
+	main_command := "/interface/vlan/remove"
+
+	var vlan_name string
+
+	vlan_name = GetStringUserInput("Give the vlan name: ")
+
+	vlan_name = fmt.Sprintf("=numbers=%s", vlan_name)
+
+	full_command := []string{main_command, vlan_name}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
 }
 
 func InterfaceConfig(client *routeros.Client) {
-	menu := []string{"Print Interfaces", "Add Comment", "Remove Comment", "Add VLAN", "Remove VLAN"}
+	ClearScreen()
 
-	PrintMenu(menu)
-	user_choice := GetUserInput()
+	menu := []string{
+		"Print Interfaces",
+		"Change Interface Name",
+		"Add/Edit Comment",
+		"Remove Comment",
+		"Add VLAN",
+		"Remove VLAN",
+		"Back",
+	}
+
+	PrintOptions(menu)
+	choose_prompt := "Choose the configuration you want to do: "
+	user_choice := GetIntUserInput(choose_prompt)
 
 	// TODOs
 	switch user_choice {
@@ -127,17 +295,26 @@ func InterfaceConfig(client *routeros.Client) {
 		// 1. Print interfaces
 		PrintInterfaces(client)
 	case 2:
-		// 2. Add comment to interface
+		// 2. Change interface name
+		ChangeInterfaceName(client)
+	case 3:
+		// 3. Add comment to interface
 		AddInterfaceComment(client)
+	case 4:
+		// 4. Remove comment from interface
+		RemoveInterfaceComment(client)
+	case 5:
+		// 5. Add vlan
+		AddVlan(client)
+	case 6:
+		// 6. Remove vlan
+		RemoveVlan(client)
+	case len(menu):
+		return
 	default:
 		fmt.Println("Please select the available options!")
 		os.Exit(1)
 	}
-
-	// 3. Remove comment from interface
-
-	// 4. Add vlan
-	// 5. Remove vlan
 }
 
 func IpConfig(client *routeros.Client) {
@@ -160,30 +337,56 @@ func SystemConfig(client *routeros.Client) {
 	// 3. Shutdown router
 }
 
+func PrintVlan(client *routeros.Client) {
+	command := []string{"/interface/print"}
+	res, err := client.RunArgs(command)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	reply_arr := res.Re
+
+	for i := 0; i < len(reply_arr); i++ {
+		fmt.Println(string(i+1) + res.Re[i].Map["name"])
+	}
+}
+
 func main() {
-	fmt.Println("Hello there!")
+	ClearScreen()
+
+	is_running := true
 
 	client := LoginMikroTik()
 	defer client.Close()
 
-	menu := []string{"interface", "ip", "routing", "system"}
-	PrintMenu(menu)
+	// PrintVlan(client)
+	// os.Exit(0)
 
-	fmt.Print("Select one of the options: ")
+	for is_running {
+		ClearScreen()
 
-	user_choice := GetUserInput()
+		fmt.Println("Hello there!")
 
-	switch user_choice {
-	case 1:
-		InterfaceConfig(client)
-	case 2:
-		IpConfig(client)
-	case 3:
-		RoutingConfig(client)
-	case 4:
-		SystemConfig(client)
-	default:
-		fmt.Println("Please select the available options!")
-		os.Exit(1)
+		menu := []string{"interface", "ip", "routing", "system", "exit"}
+		PrintOptions(menu)
+
+		choose_prompt := "Select one of the options: "
+		user_choice := GetIntUserInput(choose_prompt)
+
+		switch user_choice {
+		case 1:
+			InterfaceConfig(client)
+		case 2:
+			IpConfig(client)
+		case 3:
+			RoutingConfig(client)
+		case 4:
+			SystemConfig(client)
+		case len(menu):
+			is_running = false
+		default:
+			fmt.Println("Please select the available options!")
+			os.Exit(1)
+		}
 	}
 }
