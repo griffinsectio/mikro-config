@@ -327,14 +327,29 @@ func IpConfig(client *routeros.Client) {
 func RoutingConfig(client *routeros.Client) {
 	// TODOs
 	// 1. Print all routing protocol options
-	// 2. Add configuration for each routing protocol options
+	// 2. BGP
+	// 3. OSPF
+	// 4. RIP
 }
 
 func SystemConfig(client *routeros.Client) {
+	ClearScreen()
+
+	menu := []string{
+		"Print Identity",
+		"Set Identity",
+		"User Management",
+		"Reboot",
+		"Shutdown",
+		"Back",
+	}
 	// TODOs
-	// 1. Print and edit system identity
-	// 2. Reboot router
-	// 3. Shutdown router
+
+	// 1. Print system identity
+	// 2. edit system identity
+	// 3. User management
+	// 4. Reboot router
+	// 5. Shutdown router
 }
 
 func PrintVlan(client *routeros.Client) {
