@@ -317,7 +317,108 @@ func InterfaceConfig(client *routeros.Client) {
 	}
 }
 
+func PrintAddressesToScreen(client *routeros.Client) {
+	main_command := []string{"/ip/address/print"}
+	RunCommand(client, main_command)
+
+	reply, err := client.RunArgs(main_command)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	reply_list := reply.Re
+
+	for i := 0; i < len(reply_list); i++ {
+		curr_iface := reply_list[i].Map
+		iface_name := curr_iface["interface"]
+		network := curr_iface["network"]
+		ip_address := curr_iface["address"]
+
+		fmt.Printf("%d. %s %s %s\n", i, iface_name, network, ip_address)
+	}
+}
+
+func PrintAddresses(client *routeros.Client) {
+	ClearScreen()
+
+	PrintAddressesToScreen(client)
+
+	EnterToContinue()
+}
+
+func AddAdress(client *routeros.Client) {
+	ifaces := RetrieveInterfaces(client)
+	main_command := "/ip/address/add"
+	var ip_address string
+	var iface string
+
+	// TODO:
+	// Validate ip_address and the subnet
+
+	ip_address_prompt := "Provide the ip address and the prefix: "
+	ip_address = GetStringUserInput(ip_address_prompt)
+	ip_address = fmt.Sprintf("=address=%s", ip_address)
+
+	PrintInterfacesToScreen(client)
+	iface_prompt := "Select interface you want to add the address to: "
+	iface = ifaces[GetIntUserInput(iface_prompt)-1]
+	iface = fmt.Sprintf("=interface=%s", iface)
+
+	full_command := []string{main_command, ip_address, iface}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+func RemoveAddress(client *routeros.Client) {
+	ClearScreen()
+
+	main_command := "/ip/address/remove"
+	var ip_address_num string
+
+	PrintAddressesToScreen(client)
+	ip_address_num_prompt := "Select the ip address number to delete: "
+	ip_address_num = GetStringUserInput(ip_address_num_prompt)
+
+	ip_address_num = fmt.Sprintf("=numbers=%s", ip_address_num)
+
+	full_command := []string{main_command, ip_address_num}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
 func IpConfig(client *routeros.Client) {
+	ClearScreen()
+
+	menu := []string{
+		"Print Addresses",
+		"Add Address",
+		"Remove Address",
+		"Back",
+	}
+
+	PrintOptions(menu)
+	choose_prompt := "Choose the configuration you want to do: "
+	user_choice := GetIntUserInput(choose_prompt)
+
+	switch user_choice {
+	case 1:
+		PrintAddresses(client)
+	case 2:
+		AddAdress(client)
+	case 3:
+		RemoveAddress(client)
+	case len(menu):
+		return
+	default:
+		fmt.Println("Please select the available options!")
+		os.Exit(1)
+
+	}
 	// TODOs
 	// 1. Print addresses
 	// 2. Add address to interface
@@ -328,6 +429,9 @@ func RoutingConfig(client *routeros.Client) {
 	// TODOs
 	// 1. Print all routing protocol options
 	// 2. Add configuration for each routing protocol options
+	// 3. BGP
+	// 4. OSPF
+	// 5. RIP
 }
 
 func SystemConfig(client *routeros.Client) {
@@ -358,9 +462,6 @@ func main() {
 
 	client := LoginMikroTik()
 	defer client.Close()
-
-	// PrintVlan(client)
-	// os.Exit(0)
 
 	for is_running {
 		ClearScreen()
