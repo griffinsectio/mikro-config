@@ -405,12 +405,16 @@ func IpConfig(client *routeros.Client) {
 	choose_prompt := "Choose the configuration you want to do: "
 	user_choice := GetIntUserInput(choose_prompt)
 
+	// TODOs
 	switch user_choice {
 	case 1:
+		// 1. Print addresses
 		PrintAddresses(client)
 	case 2:
+		// 2. Add address to interface
 		AddAdress(client)
 	case 3:
+		// 3. Remove address of an interface
 		RemoveAddress(client)
 	case len(menu):
 		return
@@ -419,18 +423,341 @@ func IpConfig(client *routeros.Client) {
 		os.Exit(1)
 
 	}
-	// TODOs
-	// 1. Print addresses
-	// 2. Add address to interface
-	// 3. Remove address of an interface
 }
 
 func RoutingConfig(client *routeros.Client) {
 	// TODOs
 	// 1. Print all routing protocol options
-	// 3. BGP
-	// 4. OSPF
-	// 5. RIP
+	// 2. BGP
+	// 3. OSPF
+	// 4. RIP
+}
+
+func PrintIdentity(client *routeros.Client) {
+	ClearScreen()
+	main_command := "/system/identity/print"
+
+	full_command := []string{main_command}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+func SetIdentity(client *routeros.Client) {
+	ClearScreen()
+	// /system/identity/set name=daisy
+	main_command := "/system/identity/set"
+	var name string
+
+	name_prompt := "Give the new identity: "
+	name = GetStringUserInput(name_prompt)
+	name = fmt.Sprintf("=name=%s", name)
+
+	full_command := []string{main_command, name}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+func RetrieveUsersData(client *routeros.Client) map[string][]string {
+	// /user/print
+	main_command := "/user/print"
+	full_command := []string{main_command}
+
+	reply, err := client.RunArgs(full_command)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	reply_list := reply.Re
+
+	users_data := make(map[string][]string)
+	var users_arr []string
+	var groups_arr []string
+
+	for _, element := range reply_list {
+		element_map := element.Map
+		users_arr = append(users_arr, element_map["name"])
+		groups_arr = append(users_arr, element_map["group"])
+	}
+
+	users_data["users"] = users_arr
+	users_data["groups"] = groups_arr
+
+	return users_data
+
+}
+
+func RetrieveGroups(client *routeros.Client) []string {
+	var groups []string
+
+	main_command := "/user/group/print"
+	full_command := []string{main_command}
+
+	reply, err := client.RunArgs(full_command)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	reply_list := reply.Re
+
+	for _, element := range reply_list {
+		element_map := element.Map
+		groups = append(groups, element_map["name"])
+	}
+
+	return groups
+}
+
+func PrintUsersToScreen(client *routeros.Client) {
+	main_command := "/user/print"
+	full_command := []string{main_command}
+
+	reply, err := client.RunArgs(full_command)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	reply_list := reply.Re
+
+	for i, element := range reply_list {
+		element_map := element.Map
+		fmt.Printf("%d. %s %s\n", i+1, element_map["name"], element_map["group"])
+	}
+}
+
+func PrintUsers(client *routeros.Client) {
+	ClearScreen()
+
+	PrintUsersToScreen(client)
+
+	EnterToContinue()
+}
+
+func AddUser(client *routeros.Client) {
+	ClearScreen()
+
+	main_command := "/user/add"
+	var name string
+	groups := RetrieveGroups(client)
+	var group string
+	var password string
+
+	name_prompt := "Give the name for the new user: "
+	name = GetStringUserInput(name_prompt)
+	name = fmt.Sprintf("=name=%s", name)
+
+	PrintOptions(groups)
+	group_prompt := "Group for the new user: "
+	group = groups[GetIntUserInput(group_prompt)-1]
+	group = fmt.Sprintf("=group=%s", group)
+
+	password_prompt := "Password for the new user: "
+	password = GetStringUserInput(password_prompt)
+	password = fmt.Sprintf("=password=%s", password)
+
+	full_command := []string{main_command, name, group, password}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+func RemoveUser(client *routeros.Client) {
+	// /user/remove numbers=
+	ClearScreen()
+	main_command := "/user/remove"
+	users := RetrieveUsersData(client)["users"]
+	var name string
+
+	name_prompt := "The the user you want to remove: "
+	name = users[GetIntUserInput(name_prompt)-1]
+	name = fmt.Sprintf("=numbers=%s", name)
+
+	full_command := []string{main_command, name}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+// Apparently MikroTik doesn't support editing the user name
+func EditUserName(client *routeros.Client) {
+	// /user/set numbers= name=
+	ClearScreen()
+	remove_user := "/user/remove"
+	add_user := "/user/add"
+
+	var username string
+	var new_username string
+
+	users := RetrieveUsersData(client)["users"]
+	username_prompt := "The user you to change the username: "
+	username = users[GetIntUserInput(username_prompt)-1]
+	username = fmt.Sprintf("=numbers=%s", username)
+
+	new_username_prompt := "The username you want to change it to: "
+	new_username = GetStringUserInput(new_username_prompt)
+	new_username = fmt.Sprintf("==%s", new_username)
+
+	// Remove user
+	remove_command := []string{remove_user, username}
+	RunCommand(client, remove_command)
+
+	// Add user
+	add_command := []string{add_user, new_username}
+	RunCommand(client, add_command)
+
+	EnterToContinue()
+}
+
+func EditUserGroup(client *routeros.Client) {
+	// /user/set =numbers= =group=
+	ClearScreen()
+
+	main_command := "/user/set"
+	users := RetrieveUsersData(client)["users"]
+	groups := RetrieveGroups(client)
+	var user string
+	var group string
+
+	PrintUsersToScreen(client)
+	user_prompt := "The user you want to edit: "
+	user = users[GetIntUserInput(user_prompt)-1]
+	user = fmt.Sprintf("=numbers=%s", user)
+
+	PrintOptions(groups)
+	group_prompt := "The group you want to give for the user: "
+	group = groups[GetIntUserInput(group_prompt)-1]
+	group = fmt.Sprintf("=group=%s", group)
+
+	full_command := []string{main_command, user, group}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+func EditUserPassword(client *routeros.Client) {
+	// /user/set =numbers= =password=
+	ClearScreen()
+
+	main_command := "/user/set"
+	users := RetrieveUsersData(client)["users"]
+
+	var user string
+	var password string
+
+	PrintUsersToScreen(client)
+	user_prompt := "The user you want to change the password"
+	user = users[GetIntUserInput(user_prompt)-1]
+	user = fmt.Sprintf("=numbers=%s", user)
+
+	password_prompt := "New password: "
+	password = GetStringUserInput(password_prompt)
+	password = fmt.Sprintf("=password=%s", password)
+
+	full_command := []string{main_command, user, password}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+func EditUser(client *routeros.Client) {
+	ClearScreen()
+
+	menu := []string{
+		"Edit user name",
+		"Edit user group",
+		"Edit user password",
+		"Back",
+	}
+
+	PrintOptions(menu)
+	user_choice_prompt := "Choose the configuration you want to do: "
+	user_choice := GetIntUserInput(user_choice_prompt)
+
+	switch user_choice {
+	case 1:
+		fmt.Println("Work in progress")
+		EnterToContinue()
+	case 2:
+		EditUserGroup(client)
+	case 3:
+		EditUserPassword(client)
+	case len(menu):
+		return
+	}
+	// TODOS
+	// 1. Edit user name
+	// 2. Change user group
+	// 3. Edit user password
+}
+
+func UserManagement(client *routeros.Client) {
+	ClearScreen()
+
+	menu := []string{
+		"Print Users",
+		"Create User",
+		"Delete User",
+		"Edit User",
+		"Back",
+	}
+
+	PrintOptions(menu)
+	choose_prompt := "Choose the configuration you want to do: "
+	user_choice := GetIntUserInput(choose_prompt)
+
+	switch user_choice {
+	case 1:
+		PrintUsers(client)
+	case 2:
+		AddUser(client)
+	case 3:
+		RemoveUser(client)
+	case 4:
+		EditUser(client)
+	case len(menu):
+		return
+
+	}
+	// TODOS
+	// 1. Print users
+	// 2. Create user
+	// 3. Delete user
+	// 4. Edit user
+}
+
+func Reboot(client *routeros.Client) {
+	ClearScreen()
+
+	main_command := "/system/reboot"
+
+	full_command := []string{main_command}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+}
+
+func Shutdown(client *routeros.Client) {
+	ClearScreen()
+
+	main_command := "/system/shutdown"
+
+	full_command := []string{main_command}
+
+	RunCommand(client, full_command)
+
+	EnterToContinue()
+
 }
 
 func SystemConfig(client *routeros.Client) {
@@ -444,6 +771,26 @@ func SystemConfig(client *routeros.Client) {
 		"Shutdown",
 		"Back",
 	}
+
+	PrintOptions(menu)
+	choose_prompt := "Choose the configuration you want to do: "
+	user_choice := GetIntUserInput(choose_prompt)
+
+	switch user_choice {
+	case 1:
+		PrintIdentity(client)
+	case 2:
+		SetIdentity(client)
+	case 3:
+		UserManagement(client)
+	case 4:
+		Reboot(client)
+	case 5:
+		Shutdown(client)
+	case len(menu):
+		return
+	}
+
 	// TODOs
 
 	// 1. Print system identity
